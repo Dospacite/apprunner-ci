@@ -1,0 +1,51 @@
+name: Diagnose upload
+
+# Isolates artifact-upload failures without paying for a full build. Uploads
+# synthetic payloads of increasing size from both runner families and reports
+# exactly where they stop working.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: An existing AppRunner run id to attach the probes to
+        required: true
+      sizes_mb:
+        description: Space-separated payload sizes in MB
+        required: false
+        default: '1 4 8'
+
+jobs:
+  probe:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload probes
+        env:
+          APPRUNNER_URL: ${{ secrets.APPRUNNER_URL }}
+          APPRUNNER_KEY: ${{ secrets.APPRUNNER_KEY }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          API="${APPRUNNER_URL%/}/api/v1/ci/runs/${RUN_ID}/artifacts"
+
+          echo "--- egress throughput reference ---"
+          curl -sS -o /dev/null -w 'download 10MB: %{speed_download} B/s in %{time_total}s\n' \
+            https://speed.cloudflare.com/__down?bytes=10000000 || true
+
+          for mb in ${{ inputs.sizes_mb }}; do
+            f="probe-${mb}mb.bin"
+            head -c $((mb*1024*1024)) /dev/urandom > "$f"
+            echo "--- ${mb} MB ---"
+            # -v to stderr captures TLS/HTTP detail; no retries so each result is one attempt.
+            curl -sS -v --http1.1 --max-time 240 -o /dev/null \
+              -w 'RESULT ${{ matrix.os }} '"${mb}"'MB: http=%{http_code} time=%{time_total}s uploaded=%{size_upload} speed_up=%{speed_upload}B/s\n' \
+              -X POST -H "Authorization: Bearer ${APPRUNNER_KEY}" \
+              -F "file=@${f}" "${API}?kind=probe&filename=${f}" 2>&1 \
+              | grep -aE 'RESULT|^< HTTP|curl: \(|Connected to|SSL connection|error' || true
+            rm -f "$f"
+          done
