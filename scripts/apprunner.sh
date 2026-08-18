@@ -19,14 +19,13 @@ RUN_ID="${APPRUNNER_RUN_ID:-}"
 
 API="${APPRUNNER_URL%/}/api/v1/ci"
 AUTH=(-H "Authorization: Bearer ${APPRUNNER_KEY}")
-# Artifact uploads once failed with four 502s and one "Error in the HTTP2
-# framing layer". A 7.5 MB body over HTTP/2 was afterwards shown to succeed, so
-# the protocol is not the cause and the real one is still unidentified — the
-# requests never reached the application. --http1.1 stays as a cheap hedge
-# against the framing error; --retry-all-errors is what actually helps, since
-# curl otherwise gives up on some of these.
+# Artifact uploads used to fail with 502s after ~60s. The cause was Traefik's
+# default 60s readTimeout bounding how long a client may take to send a request
+# body; it is fixed in Asgard's traefik.yaml, not worked around here. Retries
+# remain for genuinely transient failures — they never helped with the timeout,
+# since every attempt hit the same deterministic wall.
 CURL=(curl --silent --show-error --fail-with-body --http1.1 \
-      --retry 5 --retry-delay 5 --retry-all-errors --retry-connrefused --max-time 300)
+      --retry 3 --retry-delay 3 --retry-all-errors --retry-connrefused --max-time 900)
 
 log() { printf '\033[1;35m[apprunner]\033[0m %s\n' "$*" >&2; }
 
