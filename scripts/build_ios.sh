@@ -39,6 +39,7 @@ if [[ "$SIGNING" != "true" ]]; then
   log "signing not configured; shipping the unsigned build"
   emit "signed=false"
   emit "sign_note=signing not configured"
+  emit "artifact_path=app/build/Runner.app.zip"
   exit 0
 fi
 
@@ -55,6 +56,7 @@ if ! security find-identity -v -p codesigning 2>/dev/null | grep -qE '^[[:space:
   log "no code signing identity in the runner keychain; skipping the signed export"
   emit "signed=false"
   emit "sign_note=no signing certificate on the runner"
+  emit "artifact_path=app/build/Runner.app.zip"
   exit 0
 fi
 
@@ -96,6 +98,7 @@ if ! ( cd ios && xcodebuild archive \
   log "archive failed; keeping the unsigned build"
   emit "signed=false"
   emit "sign_note=archive failed, see the log"
+  emit "artifact_path=app/build/Runner.app.zip"
   exit 0
 fi
 
@@ -111,6 +114,7 @@ if ! xcodebuild -exportArchive \
   log "export failed; keeping the unsigned build"
   emit "signed=false"
   emit "sign_note=ipa export failed, see the log"
+  emit "artifact_path=app/build/Runner.app.zip"
   exit 0
 fi
 
@@ -119,8 +123,10 @@ if [[ -n "$IPA" ]]; then
   mv "$IPA" build/Runner.ipa
   log "exported build/Runner.ipa"
   emit "signed=true"
+  emit "artifact_path=app/build/Runner.ipa"
 else
   log "export produced no ipa; keeping the unsigned build"
   emit "signed=false"
   emit "sign_note=export produced no ipa"
+  emit "artifact_path=app/build/Runner.app.zip"
 fi

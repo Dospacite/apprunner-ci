@@ -244,9 +244,9 @@ jobs:
           # The server pulls this rather than the runner pushing it: the
           # runner-to-host direction of the GitHub route is ~10x slower.
           name: ios-app
-          path: |
-            app/build/Runner.ipa
-            app/build/Runner.app.zip
+          # One file only. Publishing both put 15 MB in the archive, and every
+          # megabyte the server has to pull back over the GitHub route counts.
+          path: ${{ steps.build.outputs.artifact_path }}
           if-no-files-found: warn
           compression-level: 0
           retention-days: 7
@@ -282,11 +282,8 @@ jobs:
           # Hand the build output over by reference. The server fetches it from
           # Actions, which is far faster than pushing it from here.
           if [ "${{ steps.publish.outcome }}" = "success" ]; then
-            if [ -f app/build/Runner.ipa ]; then
-              ./scripts/apprunner.sh artifact-from-github ios-app ios-app Runner.ipa
-            else
-              ./scripts/apprunner.sh artifact-from-github ios-app ios-app Runner.app.zip
-            fi
+            ./scripts/apprunner.sh artifact-from-github ios-app ios-app \
+              "$(basename '${{ steps.build.outputs.artifact_path }}')"
           else
             ./scripts/apprunner.sh event warn "No build output was published to Actions."
           fi
