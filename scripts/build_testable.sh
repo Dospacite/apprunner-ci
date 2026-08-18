@@ -7,17 +7,17 @@
 # the device SDK, then zip the products directory together with its .xctestrun
 # manifest. Test Lab reads that pair and needs nothing else.
 #
+# Signing is attempted but not required. Automatic *development* signing needs a
+# registered device, and GitHub's macOS runners cannot register (their hostnames
+# exceed Apple's Device Name limit) — so when signing does not come together the
+# bundle is built unsigned and Test Lab re-signs it on the way in.
+#
 # Usage: build_testable.sh <app-dir> <bundle-id>
-# Environment: ASC_KEY_ID, ASC_ISSUER_ID, ASC_TEAM_ID, KEY_PATH
+# Environment (optional): ASC_KEY_ID, ASC_ISSUER_ID, ASC_TEAM_ID, KEY_PATH
 set -euo pipefail
 
 APP_DIR="${1:?usage: build_testable.sh <app-dir> <bundle-id>}"
 BUNDLE_ID="${2:?usage: build_testable.sh <app-dir> <bundle-id>}"
-
-: "${ASC_KEY_ID:?ASC_KEY_ID is required}"
-: "${ASC_ISSUER_ID:?ASC_ISSUER_ID is required}"
-: "${ASC_TEAM_ID:?ASC_TEAM_ID is required}"
-: "${KEY_PATH:?KEY_PATH is required}"
 
 log() { printf '\033[1;34m[testable]\033[0m %s\n' "$*" >&2; }
 emit() { echo "$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
@@ -36,21 +36,42 @@ log "integration entrypoint: ${TARGET}"
 # integration test rather than lib/main.dart. No compilation happens here.
 flutter build ios --config-only --release "$TARGET"
 
-log "building for testing against the device SDK"
-( cd ios && xcodebuild build-for-testing \
-    -workspace Runner.xcworkspace \
-    -scheme Runner \
-    -configuration Release \
-    -derivedDataPath ../build/ios_integ \
-    -sdk iphoneos \
-    -allowProvisioningUpdates \
-    -allowProvisioningDeviceRegistration \
-    -authenticationKeyPath "$KEY_PATH" \
-    -authenticationKeyID "$ASC_KEY_ID" \
-    -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-    DEVELOPMENT_TEAM="$ASC_TEAM_ID" \
-    CODE_SIGN_STYLE=Automatic \
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" )
+COMMON=(
+  build-for-testing
+  -workspace Runner.xcworkspace
+  -scheme Runner
+  -configuration Release
+  -derivedDataPath ../build/ios_integ
+  -sdk iphoneos
+  PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
+)
+
+SIGNED=false
+if [[ -n "${KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -n "${ASC_TEAM_ID:-}" ]]; then
+  log "attempting a signed build for team ${ASC_TEAM_ID}"
+  if ( cd ios && xcodebuild "${COMMON[@]}" \
+        -allowProvisioningUpdates \
+        -authenticationKeyPath "$KEY_PATH" \
+        -authenticationKeyID "$ASC_KEY_ID" \
+        -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+        DEVELOPMENT_TEAM="$ASC_TEAM_ID" \
+        CODE_SIGN_STYLE=Automatic ); then
+    SIGNED=true
+    log "signed build succeeded"
+  else
+    log "signed build failed; falling back to an unsigned bundle"
+    rm -rf build/ios_integ
+  fi
+fi
+
+if [[ "$SIGNED" != "true" ]]; then
+  log "building unsigned for testing (Test Lab re-signs on upload)"
+  ( cd ios && xcodebuild "${COMMON[@]}" \
+      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGN_IDENTITY="" \
+      CODE_SIGN_ENTITLEMENTS="" )
+fi
 
 PRODUCTS="build/ios_integ/Build/Products"
 if [[ ! -d "$PRODUCTS" ]]; then
@@ -77,5 +98,6 @@ if [[ ! -s build/ios_tests.zip ]]; then
   exit 1
 fi
 
-log "built build/ios_tests.zip ($(du -h build/ios_tests.zip | cut -f1))"
+log "built build/ios_tests.zip ($(du -h build/ios_tests.zip | cut -f1), signed=${SIGNED})"
 emit "built=true"
+emit "bundle_signed=${SIGNED}"

@@ -41,9 +41,25 @@ workflow**:
 | `ASC_TEAM_ID` | signing | Apple team id. |
 | `FIREBASE_SA` | Test Lab | GCP service account JSON with Test Lab Admin. |
 
-Missing secrets degrade rather than break. Without the `ASC_*` set the iOS
-stage still produces an unsigned build and the device stage reports itself
-skipped with the reason. Without `FIREBASE_SA` the first two gates run normally.
+Missing secrets degrade rather than break. Without the `ASC_*` set the iOS stage
+still produces an unsigned build and an unsigned test bundle. Without
+`FIREBASE_SA` the first two gates run normally and the device stage reports
+itself skipped with the reason.
+
+### On iOS signing
+
+Automatic *development* signing needs a registered device, and GitHub's macOS
+runners cannot register — Apple rejects their hostnames as too long for the
+Device Name field, and burning a device slot per CI run would be wrong anyway.
+So signing is attempted and never required:
+
+- The downloadable `.app` is always built unsigned; a signed `.ipa` is exported
+  on top only when signing succeeds.
+- The XCTest bundle falls back to an unsigned device build, which Test Lab
+  re-signs on upload.
+
+The stage reports which path it took rather than claiming signing was
+unconfigured.
 
 ## What the runner does to a project
 

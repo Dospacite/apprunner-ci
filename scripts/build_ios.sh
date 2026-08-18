@@ -38,6 +38,7 @@ log "packaging Runner.app"
 if [[ "$SIGNING" != "true" ]]; then
   log "signing not configured; shipping the unsigned build"
   emit "signed=false"
+  emit "sign_note=signing not configured"
   exit 0
 fi
 
@@ -72,7 +73,6 @@ if ! ( cd ios && xcodebuild archive \
         -configuration Release \
         -archivePath "$ARCHIVE" \
         -allowProvisioningUpdates \
-        -allowProvisioningDeviceRegistration \
         -authenticationKeyPath "$KEY_PATH" \
         -authenticationKeyID "$ASC_KEY_ID" \
         -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
@@ -81,6 +81,7 @@ if ! ( cd ios && xcodebuild archive \
         PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" ); then
   log "archive failed; keeping the unsigned build"
   emit "signed=false"
+  emit "sign_note=archive failed, see the log"
   exit 0
 fi
 
@@ -95,6 +96,7 @@ if ! xcodebuild -exportArchive \
       -authenticationKeyIssuerID "$ASC_ISSUER_ID"; then
   log "export failed; keeping the unsigned build"
   emit "signed=false"
+  emit "sign_note=ipa export failed, see the log"
   exit 0
 fi
 
@@ -106,4 +108,5 @@ if [[ -n "$IPA" ]]; then
 else
   log "export produced no ipa; keeping the unsigned build"
   emit "signed=false"
+  emit "sign_note=export produced no ipa"
 fi

@@ -185,7 +185,7 @@ jobs:
 
       - name: Build the XCTest bundle
         id: testable
-        if: steps.signing.outputs.configured == 'true' && inputs.skip_firebase != 'true'
+        if: inputs.skip_firebase != 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -219,7 +219,8 @@ jobs:
             if [ "${{ steps.build.outputs.signed }}" = "true" ]; then
               ./scripts/apprunner.sh stage ios_build passed "Signed release build for ${{ steps.ident.outputs.bundle_id }}."
             else
-              ./scripts/apprunner.sh stage ios_build passed "Unsigned release build (signing not configured)."
+              NOTE="${{ steps.build.outputs.sign_note }}"
+              ./scripts/apprunner.sh stage ios_build passed "Unsigned release build (${NOTE:-signing not configured})."
             fi
           else
             ./scripts/apprunner.sh stage ios_build failed "$(./scripts/summarize_xcode.sh build.log)"
@@ -243,8 +244,6 @@ jobs:
             echo "reason=Skipped by request." >> "$GITHUB_OUTPUT"
           elif [ -z "$FIREBASE_SA" ]; then
             echo "reason=Test Lab credentials are not configured." >> "$GITHUB_OUTPUT"
-          elif [ "${{ needs.ios-build.outputs.signing }}" != "true" ]; then
-            echo "reason=Test Lab needs a signed build; iOS signing is not configured." >> "$GITHUB_OUTPUT"
           elif [ "${{ needs.ios-build.outputs.testable }}" != "true" ]; then
             echo "reason=The XCTest bundle could not be built." >> "$GITHUB_OUTPUT"
           else
