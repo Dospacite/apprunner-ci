@@ -27,7 +27,9 @@ log() { printf '\033[1;35m[apprunner]\033[0m %s\n' "$*" >&2; }
 # worth less than the build result it would discard.
 soft() { "$@" || log "warning: reporting call failed, continuing"; }
 
-json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' <<<"${1-}"; }
+# A here-string appends a newline, which would otherwise ride along into every
+# detail string the pipeline rail shows.
+json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n")))' <<<"${1-}"; }
 
 require_run() {
   if [[ -z "$RUN_ID" ]]; then
