@@ -11,7 +11,13 @@
 set -euo pipefail
 
 BUNDLE="${1:?usage: run_testlab.sh <ios_tests.zip>}"
-PROJECT="${FIREBASE_PROJECT:-rousoftware}"
+# Falls back to whatever project the service account authenticated as, so a
+# self-hosted runner needs no extra configuration for the common case.
+PROJECT="${FIREBASE_PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
+[[ -n "$PROJECT" && "$PROJECT" != "(unset)" ]] || {
+  echo "[testlab] set the FIREBASE_PROJECT repository variable, or authenticate a service account that names one" >&2
+  exit 1
+}
 TIMEOUT="${TESTLAB_TIMEOUT:-15m}"
 
 log() { printf '\033[1;33m[testlab]\033[0m %s\n' "$*" >&2; }

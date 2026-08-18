@@ -40,7 +40,9 @@ env:
   APPRUNNER_KEY: ${{ secrets.APPRUNNER_KEY }}
   APPRUNNER_RUN_ID: ${{ inputs.run_id }}
   APPRUNNER_PROJECT: ${{ inputs.project }}
-  IOS_ORG: com.rousoftware
+  # Reverse-DNS prefix for the generated bundle id. Set the IOS_ORG repository
+  # variable to a namespace your Apple team owns; com.example cannot be signed.
+  IOS_ORG: ${{ vars.IOS_ORG || 'com.example' }}
 
 jobs:
   # ── Gate 1 ────────────────────────────────────────────────────────────────
@@ -319,6 +321,7 @@ jobs:
         continue-on-error: true
         env:
           IOS_DEVICE: ${{ inputs.ios_device }}
+          FIREBASE_PROJECT: ${{ vars.FIREBASE_PROJECT }}
         run: |
           set -o pipefail
           ./scripts/run_testlab.sh bundle/ios_tests.zip 2>&1 | tee testlab.log

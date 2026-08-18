@@ -12,7 +12,7 @@ set -euo pipefail
 
 APP_DIR="${1:?usage: prepare_project.sh <app-dir> <bundle-id> <org>}"
 BUNDLE_ID="${2:?usage: prepare_project.sh <app-dir> <bundle-id> <org>}"
-ORG="${3:-com.rousoftware}"
+ORG="${3:-com.example}"
 
 log() { printf '\033[1;36m[prepare]\033[0m %s\n' "$*" >&2; }
 
