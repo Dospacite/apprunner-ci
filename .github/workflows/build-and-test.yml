@@ -229,7 +229,7 @@ jobs:
           ./scripts/build_testable.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee testable.log
 
       - name: Report why the test bundle was not built
-        if: steps.testable.outcome != 'success'
+        if: steps.testable.outcome == 'failure'
         run: |
           ./scripts/apprunner.sh event error \
             "XCTest bundle not built — ${{ steps.testable.outputs.sign_failure }}"
