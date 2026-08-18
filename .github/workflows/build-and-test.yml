@@ -1,0 +1,318 @@
+name: Build and test
+
+# Dispatched by the AppRunner control plane. Every input is optional: with no
+# run_id the workflow builds without reporting, and with no project it takes
+# the newest archive the CI key can see.
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: AppRunner base URL (defaults to the APPRUNNER_URL secret)
+        required: false
+        default: ''
+      run_id:
+        description: AppRunner run to report progress against
+        required: false
+        default: ''
+      project:
+        description: Project slug or id (empty means the newest archive)
+        required: false
+        default: ''
+      skip_firebase:
+        description: Skip the Firebase Test Lab stage
+        required: false
+        default: 'false'
+      flutter_version:
+        description: Pin a Flutter version (empty means latest stable)
+        required: false
+        default: ''
+      ios_device:
+        description: 'Test Lab device, as model=...,version=...'
+        required: false
+        default: ''
+
+concurrency:
+  group: apprunner-${{ inputs.run_id || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  APPRUNNER_URL: ${{ inputs.server_url || secrets.APPRUNNER_URL }}
+  APPRUNNER_KEY: ${{ secrets.APPRUNNER_KEY }}
+  APPRUNNER_RUN_ID: ${{ inputs.run_id }}
+  APPRUNNER_PROJECT: ${{ inputs.project }}
+  IOS_ORG: com.rousoftware
+
+jobs:
+  # ── Gate 1 ────────────────────────────────────────────────────────────────
+  flutter-test:
+    name: Flutter tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      project: ${{ steps.fetch.outputs.apprunner_project }}
+      version: ${{ steps.fetch.outputs.apprunner_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Claim the run
+        run: |
+          ./scripts/apprunner.sh start
+          ./scripts/apprunner.sh stage flutter_test running "Preparing the runner."
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Fetch the project archive
+        id: fetch
+        run: ./scripts/apprunner.sh fetch app
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      # Analysis is reported but does not gate: a lint regression should not
+      # stop a build whose tests pass.
+      - name: Analyze
+        id: analyze
+        continue-on-error: true
+        working-directory: app
+        run: |
+          set -o pipefail
+          flutter analyze 2>&1 | tee ../analyze.log
+
+      - name: Run tests
+        id: tests
+        working-directory: app
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee ../flutter-test.log
+
+      - name: Report Flutter tests
+        if: always()
+        run: |
+          ./scripts/apprunner.sh log flutter_test analyze.log analyze.log || true
+          ./scripts/apprunner.sh log flutter_test flutter-test.log flutter-test.log || true
+
+          if [ "${{ steps.analyze.outcome }}" != "success" ]; then
+            ./scripts/apprunner.sh event warn "flutter analyze reported problems; tests still gate the run."
+          fi
+
+          SUMMARY="$(./scripts/summarize_tests.sh flutter-test.log)"
+          if [ "${{ steps.tests.outcome }}" = "success" ]; then
+            ./scripts/apprunner.sh stage flutter_test passed "$SUMMARY"
+          else
+            ./scripts/apprunner.sh stage flutter_test failed "$SUMMARY"
+          fi
+
+  # ── Gate 2 ────────────────────────────────────────────────────────────────
+  ios-build:
+    name: iOS build
+    runs-on: macos-15
+    needs: flutter-test
+    timeout-minutes: 60
+    outputs:
+      signing: ${{ steps.signing.outputs.configured }}
+      signed: ${{ steps.build.outputs.signed }}
+      testable: ${{ steps.testable.outputs.built }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Open the stage
+        run: ./scripts/apprunner.sh stage ios_build running "Fetching the archive."
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Fetch the project archive
+        id: fetch
+        run: ./scripts/apprunner.sh fetch app
+
+      - name: Derive the bundle identifier
+        id: ident
+        run: |
+          # Test Lab signs against a real team, so the bundle id has to live in
+          # a namespace that team owns - never flutter create's com.example.
+          SLUG="${{ needs.flutter-test.outputs.project }}"
+          SUFFIX="$(printf '%s' "$SLUG" | tr -cd '[:alnum:]' | tr '[:upper:]' '[:lower:]')"
+          echo "bundle_id=${IOS_ORG}.${SUFFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare the project
+        id: prepare
+        run: |
+          set -o pipefail
+          ./scripts/prepare_project.sh app "${{ steps.ident.outputs.bundle_id }}" "$IOS_ORG" 2>&1 | tee prepare.log
+
+      - name: Install the App Store Connect key
+        id: signing
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_TEAM_ID: ${{ secrets.ASC_TEAM_ID }}
+        run: |
+          if [ -z "$ASC_KEY_P8" ] || [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_TEAM_ID" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            ./scripts/apprunner.sh event warn "iOS signing is not configured; building unsigned and skipping Test Lab."
+            exit 0
+          fi
+          mkdir -p ~/private_keys
+          printf '%s' "$ASC_KEY_P8" | base64 --decode > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          chmod 600 ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          echo "key_path=$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_OUTPUT"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build the application
+        id: build
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_TEAM_ID: ${{ secrets.ASC_TEAM_ID }}
+          KEY_PATH: ${{ steps.signing.outputs.key_path }}
+          SIGNING: ${{ steps.signing.outputs.configured }}
+        run: |
+          set -o pipefail
+          ./scripts/build_ios.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee build.log
+
+      - name: Build the XCTest bundle
+        id: testable
+        if: steps.signing.outputs.configured == 'true' && inputs.skip_firebase != 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_TEAM_ID: ${{ secrets.ASC_TEAM_ID }}
+          KEY_PATH: ${{ steps.signing.outputs.key_path }}
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ./scripts/build_testable.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee testable.log
+
+      - name: Upload the XCTest bundle for the device stage
+        if: steps.testable.outputs.built == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-tests
+          path: app/build/ios_tests.zip
+          retention-days: 1
+
+      - name: Report the iOS build
+        if: always()
+        run: |
+          ./scripts/apprunner.sh log ios_build prepare.log prepare.log || true
+          ./scripts/apprunner.sh log ios_build xcodebuild.log build.log || true
+          ./scripts/apprunner.sh log ios_build build-for-testing.log testable.log || true
+
+          for candidate in app/build/Runner.ipa app/build/Runner.app.zip; do
+            [ -f "$candidate" ] && ./scripts/apprunner.sh artifact ios-app "$candidate"
+          done
+
+          if [ "${{ steps.build.outcome }}" = "success" ]; then
+            if [ "${{ steps.build.outputs.signed }}" = "true" ]; then
+              ./scripts/apprunner.sh stage ios_build passed "Signed release build for ${{ steps.ident.outputs.bundle_id }}."
+            else
+              ./scripts/apprunner.sh stage ios_build passed "Unsigned release build (signing not configured)."
+            fi
+          else
+            ./scripts/apprunner.sh stage ios_build failed "$(./scripts/summarize_xcode.sh build.log)"
+          fi
+
+  # ── Gate 3 ────────────────────────────────────────────────────────────────
+  firebase-test:
+    name: Firebase XCTest
+    runs-on: ubuntu-latest
+    needs: [flutter-test, ios-build]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide whether the device stage runs
+        id: gate
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+        run: |
+          if [ "${{ inputs.skip_firebase }}" = "true" ]; then
+            echo "reason=Skipped by request." >> "$GITHUB_OUTPUT"
+          elif [ -z "$FIREBASE_SA" ]; then
+            echo "reason=Test Lab credentials are not configured." >> "$GITHUB_OUTPUT"
+          elif [ "${{ needs.ios-build.outputs.signing }}" != "true" ]; then
+            echo "reason=Test Lab needs a signed build; iOS signing is not configured." >> "$GITHUB_OUTPUT"
+          elif [ "${{ needs.ios-build.outputs.testable }}" != "true" ]; then
+            echo "reason=The XCTest bundle could not be built." >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip the device stage
+        if: steps.gate.outputs.run != 'true'
+        run: ./scripts/apprunner.sh stage firebase_test skipped "${{ steps.gate.outputs.reason }}"
+
+      - name: Open the stage
+        if: steps.gate.outputs.run == 'true'
+        run: ./scripts/apprunner.sh stage firebase_test running "Uploading the XCTest bundle to Test Lab."
+
+      - name: Download the XCTest bundle
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-tests
+          path: bundle
+
+      - name: Authenticate to Google Cloud
+        if: steps.gate.outputs.run == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.gate.outputs.run == 'true'
+
+      - name: Run the tests on a device
+        id: testlab
+        if: steps.gate.outputs.run == 'true'
+        continue-on-error: true
+        env:
+          IOS_DEVICE: ${{ inputs.ios_device }}
+        run: |
+          set -o pipefail
+          ./scripts/run_testlab.sh bundle/ios_tests.zip 2>&1 | tee testlab.log
+
+      - name: Report the device stage
+        if: always() && steps.gate.outputs.run == 'true'
+        run: |
+          ./scripts/apprunner.sh log firebase_test testlab.log testlab.log || true
+          if [ "${{ steps.testlab.outcome }}" = "success" ]; then
+            ./scripts/apprunner.sh stage firebase_test passed "$(./scripts/summarize_testlab.sh testlab.log)"
+          else
+            ./scripts/apprunner.sh stage firebase_test failed "$(./scripts/summarize_testlab.sh testlab.log)"
+          fi
+
+  # ── Close the run exactly once ────────────────────────────────────────────
+  finalize:
+    name: Finalize
+    runs-on: ubuntu-latest
+    needs: [flutter-test, ios-build, firebase-test]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - name: Close the run
+        run: |
+          RESULTS="${{ needs.flutter-test.result }} ${{ needs.ios-build.result }} ${{ needs.firebase-test.result }}"
+          echo "job results: $RESULTS"
+
+          if [[ "$RESULTS" == *cancelled* ]]; then
+            ./scripts/apprunner.sh finish cancelled "The workflow was cancelled."
+          elif [[ "$RESULTS" == *failure* ]]; then
+            # The failing stage already recorded why; do not overwrite it.
+            ./scripts/apprunner.sh finish failed "A pipeline stage failed."
+          else
+            ./scripts/apprunner.sh finish passed "All stages completed."
+          fi
