@@ -24,8 +24,13 @@ AUTH=(-H "Authorization: Bearer ${APPRUNNER_KEY}")
 # body; it is fixed in Asgard's traefik.yaml, not worked around here. Retries
 # remain for genuinely transient failures — they never helped with the timeout,
 # since every attempt hit the same deterministic wall.
+# --max-time alone is the wrong control for this path: throughput from GitHub
+# runners to the host is 5-57 KB/s, so a legitimate upload can take 20 minutes
+# while a genuinely dead one should fail fast. --speed-limit/--speed-time abort
+# only when transfer actually stalls, which distinguishes the two.
 CURL=(curl --silent --show-error --fail-with-body --http1.1 \
-      --retry 3 --retry-delay 3 --retry-all-errors --retry-connrefused --max-time 900)
+      --retry 3 --retry-delay 3 --retry-all-errors --retry-connrefused \
+      --speed-limit 1024 --speed-time 120 --max-time 1800)
 
 log() { printf '\033[1;35m[apprunner]\033[0m %s\n' "$*" >&2; }
 
@@ -165,7 +170,7 @@ cmd_artifact() {
   [[ -s "$file" ]] || { log "artifact ${file} is missing or empty"; return 0; }
   log "uploading $(basename "$file") ($(du -h "$file" | cut -f1))"
 
-  if "${CURL[@]}" --max-time 1800 "${AUTH[@]}" -X POST -F "file=@${file}" \
+  if "${CURL[@]}" "${AUTH[@]}" -X POST -F "file=@${file}" \
       "${API}/runs/${RUN_ID}/artifacts?kind=${kind}&filename=$(basename "$file")" >/dev/null; then
     return 0
   fi

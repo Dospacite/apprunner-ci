@@ -264,14 +264,18 @@ jobs:
             ./scripts/apprunner.sh stage ios_build failed "$(./scripts/summarize_xcode.sh build.log)"
           fi
 
-          # `[ -f x ] && cmd` would leave the loop non-zero on a missing file
-          # under `set -e`; an explicit if keeps the exit status meaningful.
+          # Upload one artifact, not two. The .ipa already contains Runner.app,
+          # so shipping both doubles the transfer for no extra information —
+          # and the GitHub-to-host route runs at 5-57 KB/s, where every
+          # megabyte costs minutes.
           upload_failed=0
-          for candidate in app/build/Runner.ipa app/build/Runner.app.zip; do
-            if [ -f "$candidate" ]; then
-              ./scripts/apprunner.sh artifact ios-app "$candidate" || upload_failed=1
-            fi
-          done
+          if [ -f app/build/Runner.ipa ]; then
+            ./scripts/apprunner.sh artifact ios-app app/build/Runner.ipa || upload_failed=1
+          elif [ -f app/build/Runner.app.zip ]; then
+            ./scripts/apprunner.sh artifact ios-app app/build/Runner.app.zip || upload_failed=1
+          else
+            ./scripts/apprunner.sh event warn "No build output was produced to upload."
+          fi
           exit $upload_failed
 
   # ── Gate 3 ────────────────────────────────────────────────────────────────
