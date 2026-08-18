@@ -7,11 +7,16 @@
 # the device SDK, then zip the products directory together with its .xctestrun
 # manifest. Test Lab reads that pair and needs nothing else.
 #
-# Test Lab re-signs the bundle with its own profile and certificate, but it only
-# accepts artifacts that are already validly signed — an unsigned build fails its
-# `codesign --verify` check. Team signing is therefore attempted first, and an
-# ad-hoc signature (CODE_SIGN_IDENTITY="-") is the fallback: it is valid on disk,
-# needs no Apple account or registered device, and Test Lab replaces it anyway.
+# Signing, in order of preference:
+#
+#   1. A real identity in the keychain (import one via the IOS_CERT_P12 secret)
+#      plus automatic provisioning from the App Store Connect key. This is the
+#      only path that yields a bundle Test Lab is documented to accept.
+#   2. Unsigned. Apple rejects ad-hoc signing outright for the device SDK
+#      ("Ad Hoc code signing is not allowed with SDK 'iOS 18.5'"), so there is
+#      no middle ground. Test Lab re-signs on upload but expects validly signed
+#      artifacts, so an unsigned bundle may be refused — the stage says so
+#      rather than pretending otherwise.
 #
 # Usage: build_testable.sh <app-dir> <bundle-id>
 # Environment (optional): ASC_KEY_ID, ASC_ISSUER_ID, ASC_TEAM_ID, KEY_PATH
@@ -50,7 +55,12 @@ COMMON=(
 )
 
 SIGNED=false
-if [[ -n "${KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -n "${ASC_TEAM_ID:-}" ]]; then
+HAS_IDENTITY=false
+if security find-identity -v -p codesigning 2>/dev/null | grep -qE '^[[:space:]]+[0-9]+\)'; then
+  HAS_IDENTITY=true
+fi
+
+if [[ "$HAS_IDENTITY" == "true" && -n "${KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -n "${ASC_TEAM_ID:-}" ]]; then
   log "attempting a signed build for team ${ASC_TEAM_ID}"
   if ( cd ios && xcodebuild "${COMMON[@]}" \
         -allowProvisioningUpdates \
@@ -68,12 +78,12 @@ if [[ -n "${KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -
 fi
 
 if [[ "$SIGNED" != "true" ]]; then
-  log "building with an ad-hoc signature"
+  log "no usable signing identity; building unsigned"
   ( cd ios && xcodebuild "${COMMON[@]}" \
       CODE_SIGN_STYLE=Manual \
-      CODE_SIGN_IDENTITY="-" \
-      CODE_SIGNING_REQUIRED=YES \
-      CODE_SIGNING_ALLOWED=YES \
+      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGN_IDENTITY="" \
       PROVISIONING_PROFILE_SPECIFIER="" \
       DEVELOPMENT_TEAM="" )
 fi

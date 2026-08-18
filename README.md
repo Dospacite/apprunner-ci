@@ -55,11 +55,22 @@ So signing is attempted and never required:
 
 - The downloadable `.app` is always built unsigned; a signed `.ipa` is exported
   on top only when signing succeeds.
-- The XCTest bundle falls back to an **ad-hoc** signature. Test Lab re-signs
-  every bundle with its own profile and certificate, but it rejects artifacts
-  that are not already validly signed, so unsigned is not an option and ad-hoc
-  is. The build verifies with `codesign --verify` before zipping and warns if
-  the signature would be rejected.
+- The XCTest bundle is signed when an identity exists and built **unsigned**
+  otherwise. There is no middle ground: Apple rejects ad-hoc signing outright
+  for the device SDK (*"Ad Hoc code signing is not allowed with SDK 'iOS 18.5'"*).
+  Test Lab re-signs on upload but expects validly signed artifacts, so an
+  unsigned bundle may be refused — the run says so rather than pretending.
+
+To sign for real, give the runner a certificate:
+
+```bash
+# Export an Apple Development certificate + private key from Keychain as .p12
+base64 -w0 cert.p12 | gh secret set IOS_CERT_P12 --repo Dospacite/apprunner-ci
+gh secret set IOS_CERT_PASSWORD --repo Dospacite/apprunner-ci
+```
+
+The workflow imports it into a throwaway keychain, and automatic provisioning
+then has the certificate it needs to build a profile from the ASC key.
 
 The stage reports which path it took rather than claiming signing was
 unconfigured.

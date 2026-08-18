@@ -167,6 +167,35 @@ jobs:
           echo "key_path=$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_OUTPUT"
           echo "configured=true" >> "$GITHUB_OUTPUT"
 
+      - name: Import the signing certificate
+        env:
+          IOS_CERT_P12: ${{ secrets.IOS_CERT_P12 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+        run: |
+          # Guarded in-script rather than with `if:` — a step's own env block is
+          # not visible to that step's condition, and `secrets` never is.
+          if [ -z "$IOS_CERT_P12" ]; then
+            echo "No IOS_CERT_P12 secret set; the build will be unsigned."
+            exit 0
+          fi
+
+          # A throwaway keychain keeps the identity off the runner's default one
+          # and lets it disappear with the machine.
+          KEYCHAIN="$RUNNER_TEMP/apprunner.keychain-db"
+          PASSPHRASE="$(uuidgen)"
+          security create-keychain -p "$PASSPHRASE" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSPHRASE" "$KEYCHAIN"
+
+          printf '%s' "$IOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -k "$PASSPHRASE" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
       - name: Resolve dependencies
         working-directory: app
         run: flutter pub get
@@ -195,6 +224,12 @@ jobs:
         run: |
           set -o pipefail
           ./scripts/build_testable.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee testable.log
+
+      - name: Note an unsigned test bundle
+        if: steps.testable.outputs.built == 'true' && steps.testable.outputs.bundle_signed != 'true'
+        run: |
+          ./scripts/apprunner.sh event warn \
+            "XCTest bundle is unsigned: no signing identity on the runner. Test Lab may refuse it. Add an IOS_CERT_P12 secret to sign properly."
 
       - name: Upload the XCTest bundle for the device stage
         if: steps.testable.outputs.built == 'true'
