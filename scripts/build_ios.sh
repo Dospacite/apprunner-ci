@@ -77,10 +77,14 @@ PLIST
 # Flutter's own `build ipa` cannot pass App Store Connect credentials, so the
 # archive is driven directly to hand xcodebuild the API key.
 log "archiving with automatic signing for team ${ASC_TEAM_ID}"
+# Without an explicit generic destination, xcodebuild resolves the runner
+# machine as a concrete device and demands it be registered on the team
+# ("Device 'sat12-...' isn't registered in your developer account").
 if ! ( cd ios && xcodebuild archive \
         -workspace Runner.xcworkspace \
         -scheme Runner \
         -configuration Release \
+        -destination 'generic/platform=iOS' \
         -archivePath "$ARCHIVE" \
         -allowProvisioningUpdates \
         -authenticationKeyPath "$KEY_PATH" \
