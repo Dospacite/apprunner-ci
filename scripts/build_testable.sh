@@ -78,14 +78,10 @@ if [[ "$HAS_IDENTITY" == "true" && -n "${KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" &&
 fi
 
 if [[ "$SIGNED" != "true" ]]; then
-  log "no usable signing identity; building unsigned"
-  ( cd ios && xcodebuild "${COMMON[@]}" \
-      CODE_SIGN_STYLE=Manual \
-      CODE_SIGNING_ALLOWED=NO \
-      CODE_SIGNING_REQUIRED=NO \
-      CODE_SIGN_IDENTITY="" \
-      PROVISIONING_PROFILE_SPECIFIER="" \
-      DEVELOPMENT_TEAM="" )
+  log "ERROR: signed XCTest build failed; refusing to submit unsigned artifacts to Test Lab"
+  emit "built=false"
+  emit "bundle_signed=false"
+  exit 1
 fi
 
 PRODUCTS="build/ios_integ/Build/Products"
