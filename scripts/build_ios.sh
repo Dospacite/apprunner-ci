@@ -48,6 +48,16 @@ fi
 : "${ASC_TEAM_ID:?ASC_TEAM_ID is required when SIGNING=true}"
 : "${KEY_PATH:?KEY_PATH is required when SIGNING=true}"
 
+# Automatic signing can create a provisioning profile from the API key, but it
+# cannot conjure a signing certificate into an empty keychain. Checking first
+# turns a guaranteed three-minute failure into an immediate, accurate note.
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -qE '^[[:space:]]+[0-9]+\)'; then
+  log "no code signing identity in the runner keychain; skipping the signed export"
+  emit "signed=false"
+  emit "sign_note=no signing certificate on the runner"
+  exit 0
+fi
+
 ARCHIVE="$PWD/build/Runner.xcarchive"
 
 cat > build/ExportOptions.plist <<PLIST

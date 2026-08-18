@@ -34,8 +34,10 @@ fi
 log "integration entrypoint: ${TARGET}"
 
 # --config-only rewrites Generated.xcconfig so the Runner scheme launches the
-# integration test rather than lib/main.dart. No compilation happens here.
-flutter build ios --config-only --release "$TARGET"
+# integration test rather than lib/main.dart. No compilation happens here, but
+# Flutter still refuses without a signing certificate unless told not to care —
+# xcodebuild does the actual signing further down.
+flutter build ios --config-only --release --no-codesign "$TARGET"
 
 COMMON=(
   build-for-testing
