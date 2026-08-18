@@ -251,10 +251,8 @@ jobs:
           ./scripts/apprunner.sh log ios_build xcodebuild.log build.log || true
           ./scripts/apprunner.sh log ios_build build-for-testing.log testable.log || true
 
-          for candidate in app/build/Runner.ipa app/build/Runner.app.zip; do
-            [ -f "$candidate" ] && ./scripts/apprunner.sh artifact ios-app "$candidate"
-          done
-
+          # Record the gate first: a failed upload must not stop the stage result
+          # from being reported.
           if [ "${{ steps.build.outcome }}" = "success" ]; then
             if [ "${{ steps.build.outputs.signed }}" = "true" ]; then
               ./scripts/apprunner.sh stage ios_build passed "Signed release build for ${{ steps.ident.outputs.bundle_id }}."
@@ -265,6 +263,16 @@ jobs:
           else
             ./scripts/apprunner.sh stage ios_build failed "$(./scripts/summarize_xcode.sh build.log)"
           fi
+
+          # `[ -f x ] && cmd` would leave the loop non-zero on a missing file
+          # under `set -e`; an explicit if keeps the exit status meaningful.
+          upload_failed=0
+          for candidate in app/build/Runner.ipa app/build/Runner.app.zip; do
+            if [ -f "$candidate" ]; then
+              ./scripts/apprunner.sh artifact ios-app "$candidate" || upload_failed=1
+            fi
+          done
+          exit $upload_failed
 
   # ── Gate 3 ────────────────────────────────────────────────────────────────
   firebase-test:

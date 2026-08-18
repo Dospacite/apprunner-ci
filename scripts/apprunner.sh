@@ -19,7 +19,10 @@ RUN_ID="${APPRUNNER_RUN_ID:-}"
 
 API="${APPRUNNER_URL%/}/api/v1/ci"
 AUTH=(-H "Authorization: Bearer ${APPRUNNER_KEY}")
-CURL=(curl --silent --show-error --fail-with-body --retry 3 --retry-delay 2 --retry-connrefused --max-time 300)
+# --http1.1 is load-bearing: large multipart bodies over HTTP/2 fail against
+# the reverse proxy with "Error in the HTTP2 framing layer" and 502s, while
+# small requests survive — so logs uploaded fine and 7 MB artifacts did not.
+CURL=(curl --silent --show-error --fail-with-body --http1.1 --retry 3 --retry-delay 2 --retry-connrefused --max-time 300)
 
 log() { printf '\033[1;35m[apprunner]\033[0m %s\n' "$*" >&2; }
 
@@ -157,9 +160,18 @@ cmd_artifact() {
   local file="${2:?usage: apprunner.sh artifact <kind> <file>}"
   require_run "artifact ${kind}" || return 0
   [[ -s "$file" ]] || { log "artifact ${file} is missing or empty"; return 0; }
-  log "uploading $(basename "$file")"
-  soft "${CURL[@]}" --max-time 1800 "${AUTH[@]}" -X POST -F "file=@${file}" \
-    "${API}/runs/${RUN_ID}/artifacts?kind=${kind}&filename=$(basename "$file")" >/dev/null
+  log "uploading $(basename "$file") ($(du -h "$file" | cut -f1))"
+
+  if "${CURL[@]}" --max-time 1800 "${AUTH[@]}" -X POST -F "file=@${file}" \
+      "${API}/runs/${RUN_ID}/artifacts?kind=${kind}&filename=$(basename "$file")" >/dev/null; then
+    return 0
+  fi
+
+  # Loud, not soft: a run that says "passed" with nothing to download is worse
+  # than one that says the upload failed.
+  log "ERROR: failed to upload $(basename "$file")"
+  cmd_event error "Build succeeded but $(basename "$file") could not be uploaded."
+  return 1
 }
 
 cmd_finish() {
