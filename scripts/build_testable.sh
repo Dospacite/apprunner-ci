@@ -7,10 +7,11 @@
 # the device SDK, then zip the products directory together with its .xctestrun
 # manifest. Test Lab reads that pair and needs nothing else.
 #
-# Signing is attempted but not required. Automatic *development* signing needs a
-# registered device, and GitHub's macOS runners cannot register (their hostnames
-# exceed Apple's Device Name limit) — so when signing does not come together the
-# bundle is built unsigned and Test Lab re-signs it on the way in.
+# Test Lab re-signs the bundle with its own profile and certificate, but it only
+# accepts artifacts that are already validly signed — an unsigned build fails its
+# `codesign --verify` check. Team signing is therefore attempted first, and an
+# ad-hoc signature (CODE_SIGN_IDENTITY="-") is the fallback: it is valid on disk,
+# needs no Apple account or registered device, and Test Lab replaces it anyway.
 #
 # Usage: build_testable.sh <app-dir> <bundle-id>
 # Environment (optional): ASC_KEY_ID, ASC_ISSUER_ID, ASC_TEAM_ID, KEY_PATH
@@ -65,12 +66,14 @@ if [[ -n "${KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -
 fi
 
 if [[ "$SIGNED" != "true" ]]; then
-  log "building unsigned for testing (Test Lab re-signs on upload)"
+  log "building with an ad-hoc signature"
   ( cd ios && xcodebuild "${COMMON[@]}" \
-      CODE_SIGNING_ALLOWED=NO \
-      CODE_SIGNING_REQUIRED=NO \
-      CODE_SIGN_IDENTITY="" \
-      CODE_SIGN_ENTITLEMENTS="" )
+      CODE_SIGN_STYLE=Manual \
+      CODE_SIGN_IDENTITY="-" \
+      CODE_SIGNING_REQUIRED=YES \
+      CODE_SIGNING_ALLOWED=YES \
+      PROVISIONING_PROFILE_SPECIFIER="" \
+      DEVELOPMENT_TEAM="" )
 fi
 
 PRODUCTS="build/ios_integ/Build/Products"
@@ -87,6 +90,16 @@ if [[ -z "$XCTESTRUN" ]]; then
   log "no .xctestrun manifest was produced"
   emit "built=false"
   exit 1
+fi
+
+APP="$(find "$PRODUCTS/Release-iphoneos" -maxdepth 1 -name '*.app' | head -1)"
+if [[ -n "$APP" ]]; then
+  if codesign --verify --deep "$APP" 2>&1; then
+    log "codesign verifies $(basename "$APP")"
+  else
+    log "WARNING: $(basename "$APP") does not pass codesign --verify; Test Lab will reject it"
+    emit "signature_valid=false"
+  fi
 fi
 
 log "zipping $(basename "$XCTESTRUN") with Release-iphoneos"

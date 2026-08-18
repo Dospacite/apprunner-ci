@@ -55,8 +55,11 @@ So signing is attempted and never required:
 
 - The downloadable `.app` is always built unsigned; a signed `.ipa` is exported
   on top only when signing succeeds.
-- The XCTest bundle falls back to an unsigned device build, which Test Lab
-  re-signs on upload.
+- The XCTest bundle falls back to an **ad-hoc** signature. Test Lab re-signs
+  every bundle with its own profile and certificate, but it rejects artifacts
+  that are not already validly signed, so unsigned is not an option and ad-hoc
+  is. The build verifies with `codesign --verify` before zipping and warns if
+  the signature would be rejected.
 
 The stage reports which path it took rather than claiming signing was
 unconfigured.
