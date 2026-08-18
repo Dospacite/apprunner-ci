@@ -72,11 +72,21 @@ if [[ "$HAS_IDENTITY" == "true" && -n "${KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" &&
     SIGNED=true
     log "signed build succeeded"
   else
-    log "signed build failed; falling back to an unsigned bundle"
+    log "signed build failed"
+    emit "sign_failure=Apple refused a provisioning profile. The team has no registered devices, and a development profile requires at least one."
     rm -rf build/ios_integ
+  fi
+else
+  if [[ "$HAS_IDENTITY" != "true" ]]; then
+    emit "sign_failure=No signing identity in the runner keychain. Set IOS_CERT_P12."
+  else
+    emit "sign_failure=App Store Connect credentials are not configured."
   fi
 fi
 
+# Unsigned artifacts are refused rather than submitted: Test Lab accepts the
+# upload and then reports a bare "Test failed to run", which reads like a broken
+# test rather than a signing problem.
 if [[ "$SIGNED" != "true" ]]; then
   log "ERROR: signed XCTest build failed; refusing to submit unsigned artifacts to Test Lab"
   emit "built=false"

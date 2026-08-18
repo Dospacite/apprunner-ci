@@ -117,6 +117,7 @@ jobs:
       signing: ${{ steps.signing.outputs.configured }}
       signed: ${{ steps.build.outputs.signed }}
       testable: ${{ steps.testable.outputs.built }}
+      sign_failure: ${{ steps.testable.outputs.sign_failure }}
     steps:
       - uses: actions/checkout@v4
 
@@ -227,11 +228,11 @@ jobs:
           set -o pipefail
           ./scripts/build_testable.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee testable.log
 
-      - name: Note an unsigned test bundle
-        if: steps.testable.outputs.built == 'true' && steps.testable.outputs.bundle_signed != 'true'
+      - name: Report why the test bundle was not built
+        if: steps.testable.outcome != 'success'
         run: |
-          ./scripts/apprunner.sh event warn \
-            "XCTest bundle is unsigned: no signing identity on the runner. Test Lab may refuse it. Add an IOS_CERT_P12 secret to sign properly."
+          ./scripts/apprunner.sh event error \
+            "XCTest bundle not built — ${{ steps.testable.outputs.sign_failure }}"
 
       - name: Upload the XCTest bundle for the device stage
         if: steps.testable.outputs.built == 'true'
@@ -282,7 +283,8 @@ jobs:
           elif [ -z "$FIREBASE_SA" ]; then
             echo "reason=Test Lab credentials are not configured." >> "$GITHUB_OUTPUT"
           elif [ "${{ needs.ios-build.outputs.testable }}" != "true" ]; then
-            echo "reason=The XCTest bundle could not be built." >> "$GITHUB_OUTPUT"
+            REASON="${{ needs.ios-build.outputs.sign_failure }}"
+            echo "reason=No signed XCTest bundle. ${REASON:-See the iOS build log.}" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
