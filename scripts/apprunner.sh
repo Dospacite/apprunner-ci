@@ -19,10 +19,14 @@ RUN_ID="${APPRUNNER_RUN_ID:-}"
 
 API="${APPRUNNER_URL%/}/api/v1/ci"
 AUTH=(-H "Authorization: Bearer ${APPRUNNER_KEY}")
-# --http1.1 is load-bearing: large multipart bodies over HTTP/2 fail against
-# the reverse proxy with "Error in the HTTP2 framing layer" and 502s, while
-# small requests survive — so logs uploaded fine and 7 MB artifacts did not.
-CURL=(curl --silent --show-error --fail-with-body --http1.1 --retry 3 --retry-delay 2 --retry-connrefused --max-time 300)
+# Artifact uploads once failed with four 502s and one "Error in the HTTP2
+# framing layer". A 7.5 MB body over HTTP/2 was afterwards shown to succeed, so
+# the protocol is not the cause and the real one is still unidentified — the
+# requests never reached the application. --http1.1 stays as a cheap hedge
+# against the framing error; --retry-all-errors is what actually helps, since
+# curl otherwise gives up on some of these.
+CURL=(curl --silent --show-error --fail-with-body --http1.1 \
+      --retry 5 --retry-delay 5 --retry-all-errors --retry-connrefused --max-time 300)
 
 log() { printf '\033[1;35m[apprunner]\033[0m %s\n' "$*" >&2; }
 
