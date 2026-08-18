@@ -182,6 +182,27 @@ cmd_artifact() {
   return 1
 }
 
+# Asks the control plane to pull build output from GitHub Actions rather than
+# pushing it. The runner-to-host direction of the GitHub route measures
+# 5-57 KB/s; the host pulling from GitHub measures ~285 KB/s.
+cmd_artifact_from_github() {
+  local kind="${1:?usage: apprunner.sh artifact-from-github <kind> <artifact-name> [filename]}"
+  local name="${2:?usage: apprunner.sh artifact-from-github <kind> <artifact-name> [filename]}"
+  local filename="${3-}"
+  require_run "artifact-from-github ${name}" || return 0
+
+  log "asking the server to pull ${name} from GitHub run ${GITHUB_RUN_ID:-?}"
+  if "${CURL[@]}" "${AUTH[@]}" -X POST -H 'Content-Type: application/json' \
+      -d "{\"github_run_id\":\"${GITHUB_RUN_ID:-}\",\"name\":\"${name}\",\"kind\":\"${kind}\",\"filename\":$(json_escape "$filename")}" \
+      "${API}/runs/${RUN_ID}/artifacts/from-github" >/dev/null; then
+    return 0
+  fi
+
+  log "ERROR: the server could not be asked to fetch ${name}"
+  cmd_event error "Build succeeded but ${name} could not be handed to the server."
+  return 1
+}
+
 cmd_finish() {
   local status="${1:?usage: apprunner.sh finish <status> [summary]}"
   local summary="${2-}"
@@ -191,7 +212,7 @@ cmd_finish() {
     "${API}/runs/${RUN_ID}/finish" >/dev/null
 }
 
-case "${1:?usage: apprunner.sh <resolve|fetch|start|stage|event|log|artifact|finish> ...}" in
+case "${1:?usage: apprunner.sh <resolve|fetch|start|stage|event|log|artifact|artifact-from-github|finish> ...}" in
   resolve)  shift; cmd_resolve "$@" ;;
   fetch)    shift; cmd_fetch "$@" ;;
   start)    shift; cmd_start "$@" ;;
@@ -199,6 +220,7 @@ case "${1:?usage: apprunner.sh <resolve|fetch|start|stage|event|log|artifact|fin
   event)    shift; cmd_event "$@" ;;
   log)      shift; cmd_log "$@" ;;
   artifact) shift; cmd_artifact "$@" ;;
+  artifact-from-github) shift; cmd_artifact_from_github "$@" ;;
   finish)   shift; cmd_finish "$@" ;;
   *) log "unknown command: $1"; exit 2 ;;
 esac

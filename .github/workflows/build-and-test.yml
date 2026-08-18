@@ -236,6 +236,21 @@ jobs:
           ./scripts/apprunner.sh event error \
             "XCTest bundle not built — ${{ steps.testable.outputs.sign_failure }}"
 
+      - name: Publish the build output to Actions
+        id: publish
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          # The server pulls this rather than the runner pushing it: the
+          # runner-to-host direction of the GitHub route is ~10x slower.
+          name: ios-app
+          path: |
+            app/build/Runner.ipa
+            app/build/Runner.app.zip
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+
       - name: Upload the XCTest bundle for the device stage
         if: steps.testable.outputs.built == 'true'
         uses: actions/upload-artifact@v4
@@ -264,19 +279,17 @@ jobs:
             ./scripts/apprunner.sh stage ios_build failed "$(./scripts/summarize_xcode.sh build.log)"
           fi
 
-          # Upload one artifact, not two. The .ipa already contains Runner.app,
-          # so shipping both doubles the transfer for no extra information —
-          # and the GitHub-to-host route runs at 5-57 KB/s, where every
-          # megabyte costs minutes.
-          upload_failed=0
-          if [ -f app/build/Runner.ipa ]; then
-            ./scripts/apprunner.sh artifact ios-app app/build/Runner.ipa || upload_failed=1
-          elif [ -f app/build/Runner.app.zip ]; then
-            ./scripts/apprunner.sh artifact ios-app app/build/Runner.app.zip || upload_failed=1
+          # Hand the build output over by reference. The server fetches it from
+          # Actions, which is far faster than pushing it from here.
+          if [ "${{ steps.publish.outcome }}" = "success" ]; then
+            if [ -f app/build/Runner.ipa ]; then
+              ./scripts/apprunner.sh artifact-from-github ios-app ios-app Runner.ipa
+            else
+              ./scripts/apprunner.sh artifact-from-github ios-app ios-app Runner.app.zip
+            fi
           else
-            ./scripts/apprunner.sh event warn "No build output was produced to upload."
+            ./scripts/apprunner.sh event warn "No build output was published to Actions."
           fi
-          exit $upload_failed
 
   # ── Gate 3 ────────────────────────────────────────────────────────────────
   firebase-test:
