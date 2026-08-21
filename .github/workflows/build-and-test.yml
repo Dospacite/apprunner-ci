@@ -221,13 +221,13 @@ jobs:
           set -o pipefail
           ./scripts/build_ios.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee build.log
 
-      - name: Capture the launched app
+      - name: Capture app-owned screenshot states
         id: screenshot
         if: steps.build.outcome == 'success' && inputs.capture_screenshot == 'true'
         run: |
           set -o pipefail
-          ./scripts/capture_ios_screenshot.sh \
-            app "${{ steps.ident.outputs.bundle_id }}" app/build/apprunner/screenshots/launch.png \
+          ./scripts/capture_ios_screenshots.sh \
+            app app/build/apprunner/screenshots \
             2>&1 | tee screenshot.log
 
       - name: Publish the screenshot to Actions
@@ -235,8 +235,8 @@ jobs:
         if: steps.screenshot.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: ios-screenshot
-          path: app/build/apprunner/screenshots/launch.png
+          name: ios-screenshots
+          path: app/build/apprunner/screenshots/
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -320,7 +320,7 @@ jobs:
           fi
 
           if [ "${{ steps.publish-screenshot.outcome }}" = "success" ]; then
-            ./scripts/apprunner.sh artifact-from-github screenshot ios-screenshot launch.png
+            ./scripts/apprunner.sh artifact-from-github screenshot ios-screenshots
           elif [ "${{ inputs.capture_screenshot }}" = "true" ]; then
             ./scripts/apprunner.sh event error "No iOS screenshot was published to Actions."
           fi

@@ -30,7 +30,11 @@ emit() { echo "$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
 cd "$APP_DIR"
 
-TARGET="$(ls integration_test/*.dart 2>/dev/null | head -1 || true)"
+TARGET="$(find integration_test -maxdepth 1 -name '*.dart' \
+  ! -name 'apprunner_screenshots.dart' -print 2>/dev/null | sort | head -1 || true)"
+if [[ -z "$TARGET" && -f integration_test/apprunner_screenshots.dart ]]; then
+  TARGET="integration_test/apprunner_screenshots.dart"
+fi
 if [[ -z "$TARGET" ]]; then
   log "no integration test to build"
   emit "built=false"

@@ -102,7 +102,7 @@ Actions → **Build and test** → **Run workflow**:
 | `run_id` | Leave empty to build without reporting. |
 | `project` | Slug or id. **Empty builds the newest archive you own.** |
 | `skip_firebase` | `true` stops after the iOS build. Saves device quota. |
-| `capture_screenshot` | `true` launches the built app on an iOS simulator and saves `launch.png`. |
+| `capture_screenshot` | `true` runs `integration_test/apprunner_screenshots.dart` on an iOS simulator and saves every named screenshot. |
 | `flutter_version` | Empty means latest stable. |
 | `ios_device` | `model=…,version=…`. Empty picks the newest phone Test Lab offers. |
 
@@ -130,6 +130,7 @@ absent:
 | `patch_xcode.py` | Bundle ids and the Objective-C test runner, in `project.pbxproj`. |
 | `build_ios.sh` | Unsigned `.app` always; a signed `.ipa` when signing works. |
 | `build_testable.sh` | The XCTest bundle. Refuses to ship unsigned artifacts. |
+| `capture_ios_screenshots.sh` | Runs the app-owned screenshot journey and emits a validated, ordered PNG manifest. |
 | `run_testlab.sh` | Picks a device from the live catalogue and runs the bundle. |
 | `summarize_*.sh` | Condense a log into the one line the pipeline rail shows. |
 
