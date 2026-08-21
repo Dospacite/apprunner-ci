@@ -23,9 +23,13 @@ on:
         required: false
         default: 'false'
       capture_screenshot:
-        description: Build for an iOS simulator and capture the launched app
+        description: Run the app-owned screenshot journey on iOS simulators
         required: false
         default: 'false'
+      screenshot_phones:
+        description: JSON list of screenshot phone presets or exact phone selectors
+        required: false
+        default: '["default"]'
       flutter_version:
         description: Pin a Flutter version (empty means latest stable)
         required: false
@@ -224,10 +228,12 @@ jobs:
       - name: Capture app-owned screenshot states
         id: screenshot
         if: steps.build.outcome == 'success' && inputs.capture_screenshot == 'true'
+        env:
+          SCREENSHOT_PHONES: ${{ inputs.screenshot_phones }}
         run: |
           set -o pipefail
           ./scripts/capture_ios_screenshots.sh \
-            app app/build/apprunner/screenshots \
+            app app/build/apprunner/screenshots "$SCREENSHOT_PHONES" \
             2>&1 | tee screenshot.log
 
       - name: Publish the screenshot to Actions
