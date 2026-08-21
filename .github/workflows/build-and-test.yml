@@ -22,6 +22,10 @@ on:
         description: Skip the Firebase Test Lab stage
         required: false
         default: 'false'
+      capture_screenshot:
+        description: Build for an iOS simulator and capture the launched app
+        required: false
+        default: 'false'
       flutter_version:
         description: Pin a Flutter version (empty means latest stable)
         required: false
@@ -217,6 +221,26 @@ jobs:
           set -o pipefail
           ./scripts/build_ios.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee build.log
 
+      - name: Capture the launched app
+        id: screenshot
+        if: steps.build.outcome == 'success' && inputs.capture_screenshot == 'true'
+        run: |
+          set -o pipefail
+          ./scripts/capture_ios_screenshot.sh \
+            app "${{ steps.ident.outputs.bundle_id }}" app/build/apprunner/screenshots/launch.png \
+            2>&1 | tee screenshot.log
+
+      - name: Publish the screenshot to Actions
+        id: publish-screenshot
+        if: steps.screenshot.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-screenshot
+          path: app/build/apprunner/screenshots/launch.png
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
       - name: Build the XCTest bundle
         id: testable
         if: inputs.skip_firebase != 'true'
@@ -264,19 +288,26 @@ jobs:
         run: |
           ./scripts/apprunner.sh log ios_build prepare.log prepare.log || true
           ./scripts/apprunner.sh log ios_build xcodebuild.log build.log || true
+          ./scripts/apprunner.sh log ios_build screenshot.log screenshot.log || true
           ./scripts/apprunner.sh log ios_build build-for-testing.log testable.log || true
 
           # Record the gate first: a failed upload must not stop the stage result
           # from being reported.
-          if [ "${{ steps.build.outcome }}" = "success" ]; then
+          if [ "${{ steps.build.outcome }}" = "success" ] \
+             && [ "${{ steps.screenshot.outcome }}" != "failure" ] \
+             && [ "${{ steps.publish-screenshot.outcome }}" != "failure" ]; then
             if [ "${{ steps.build.outputs.signed }}" = "true" ]; then
               ./scripts/apprunner.sh stage ios_build passed "Signed release build for ${{ steps.ident.outputs.bundle_id }}."
             else
               NOTE="${{ steps.build.outputs.sign_note }}"
               ./scripts/apprunner.sh stage ios_build passed "Unsigned release build (${NOTE:-signing not configured})."
             fi
-          else
+          elif [ "${{ steps.build.outcome }}" != "success" ]; then
             ./scripts/apprunner.sh stage ios_build failed "$(./scripts/summarize_xcode.sh build.log)"
+          elif [ "${{ steps.publish-screenshot.outcome }}" = "failure" ]; then
+            ./scripts/apprunner.sh stage ios_build failed "The screenshot was captured but could not be published."
+          else
+            ./scripts/apprunner.sh stage ios_build failed "The app built, but its iOS simulator screenshot could not be captured."
           fi
 
           # Hand the build output over by reference. The server fetches it from
@@ -286,6 +317,12 @@ jobs:
               "$(basename '${{ steps.build.outputs.artifact_path }}')"
           else
             ./scripts/apprunner.sh event warn "No build output was published to Actions."
+          fi
+
+          if [ "${{ steps.publish-screenshot.outcome }}" = "success" ]; then
+            ./scripts/apprunner.sh artifact-from-github screenshot ios-screenshot launch.png
+          elif [ "${{ inputs.capture_screenshot }}" = "true" ]; then
+            ./scripts/apprunner.sh event error "No iOS screenshot was published to Actions."
           fi
 
   # ── Gate 3 ────────────────────────────────────────────────────────────────

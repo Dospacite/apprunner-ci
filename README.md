@@ -102,6 +102,7 @@ Actions → **Build and test** → **Run workflow**:
 | `run_id` | Leave empty to build without reporting. |
 | `project` | Slug or id. **Empty builds the newest archive you own.** |
 | `skip_firebase` | `true` stops after the iOS build. Saves device quota. |
+| `capture_screenshot` | `true` launches the built app on an iOS simulator and saves `launch.png`. |
 | `flutter_version` | Empty means latest stable. |
 | `ios_device` | `model=…,version=…`. Empty picks the newest phone Test Lab offers. |
 
