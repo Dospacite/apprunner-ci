@@ -72,7 +72,7 @@ log "running $SCENARIO"
 (
   cd "$APP_DIR"
   APPRUNNER_SCREENSHOT_DIR="$OUTPUT_DIR" \
-    flutter drive --release \
+    flutter drive --profile \
       --device-id "$DEVICE_ID" \
       --target "$SCENARIO" \
       --driver test_driver/apprunner_screenshots_driver.dart
