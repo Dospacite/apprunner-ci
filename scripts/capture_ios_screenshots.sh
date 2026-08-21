@@ -23,11 +23,11 @@ OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 
 python3 "$SCRIPT_DIR/resolve_ios_simulators.py" "$PHONES_JSON" > "$OUTPUT_DIR/resolved-phones.json"
 
-STARTED_DEVICES=()
+ACTIVE_DEVICE=""
 cleanup() {
-  for device_id in "${STARTED_DEVICES[@]}"; do
-    xcrun simctl shutdown "$device_id" >/dev/null 2>&1 || true
-  done
+  if [[ -n "$ACTIVE_DEVICE" ]]; then
+    xcrun simctl shutdown "$ACTIVE_DEVICE" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
@@ -41,20 +41,10 @@ import json, sys
 phone = json.load(open(sys.argv[1]))[int(sys.argv[2])]
 print("\t".join([phone["key"], phone["model"], phone["runtime"], phone["udid"]]))
 ' "$OUTPUT_DIR/resolved-phones.json" "$index")
-  STATE="$(xcrun simctl list devices --json | python3 -c '
-import json, sys
-target = sys.argv[1]
-for entries in json.load(sys.stdin).get("devices", {}).values():
-    for device in entries:
-        if device.get("udid") == target:
-            print(device.get("state", "Shutdown"))
-            raise SystemExit
-' "$DEVICE_ID")"
-  if [[ "$STATE" != "Booted" ]]; then
-    log "booting $PHONE_KEY: $MODEL, $RUNTIME"
-    xcrun simctl boot "$DEVICE_ID"
-    STARTED_DEVICES+=("$DEVICE_ID")
-  fi
+  ACTIVE_DEVICE="$DEVICE_ID"
+  log "booting $PHONE_KEY: $MODEL, $RUNTIME"
+  xcrun simctl shutdown all >/dev/null 2>&1 || true
+  xcrun simctl boot "$DEVICE_ID"
   xcrun simctl bootstatus "$DEVICE_ID" -b
 
   PHONE_DIR="$OUTPUT_DIR/phones/$PHONE_KEY"
@@ -68,6 +58,9 @@ for entries in json.load(sys.stdin).get("devices", {}).values():
         --target "$SCENARIO" \
         --driver test_driver/apprunner_screenshots_driver.dart
   )
+  log "finished $PHONE_KEY; shutting down its simulator"
+  xcrun simctl shutdown "$DEVICE_ID"
+  ACTIVE_DEVICE=""
 done
 
 python3 "$SCRIPT_DIR/finalize_screenshots.py" "$OUTPUT_DIR"
