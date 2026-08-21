@@ -36,18 +36,11 @@ cp "$SCRIPT_DIR/apprunner_screenshots_driver.dart" \
 
 PHONE_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$OUTPUT_DIR/resolved-phones.json")"
 for ((index=0; index<PHONE_COUNT; index++)); do
-  readarray -t PHONE < <(python3 -c '
+  IFS=$'\t' read -r PHONE_KEY MODEL RUNTIME DEVICE_ID < <(python3 -c '
 import json, sys
 phone = json.load(open(sys.argv[1]))[int(sys.argv[2])]
-print(phone["key"])
-print(phone["model"])
-print(phone["runtime"])
-print(phone["udid"])
+print("\t".join([phone["key"], phone["model"], phone["runtime"], phone["udid"]]))
 ' "$OUTPUT_DIR/resolved-phones.json" "$index")
-  PHONE_KEY="${PHONE[0]}"
-  MODEL="${PHONE[1]}"
-  RUNTIME="${PHONE[2]}"
-  DEVICE_ID="${PHONE[3]}"
   STATE="$(xcrun simctl list devices --json | python3 -c '
 import json, sys
 target = sys.argv[1]
