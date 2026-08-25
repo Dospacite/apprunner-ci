@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install the App Store Connect key
         env:
@@ -42,7 +42,7 @@ jobs:
             --metadata build/AppleDistribution.json
 
       - name: Upload the password-protected backup
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apple-distribution-certificate
           path: |

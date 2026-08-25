@@ -66,7 +66,7 @@ jobs:
       project: ${{ steps.fetch.outputs.apprunner_project }}
       version: ${{ steps.fetch.outputs.apprunner_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Claim the run
         run: |
@@ -133,7 +133,7 @@ jobs:
       testable: ${{ steps.testable.outputs.built }}
       sign_failure: ${{ steps.testable.outputs.sign_failure }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Open the stage
         run: ./scripts/apprunner.sh stage ios_build running "Fetching the archive."
@@ -271,7 +271,7 @@ jobs:
       - name: Publish the screenshot to Actions
         id: publish-screenshot
         if: steps.screenshot.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-screenshots
           path: app/build/apprunner/screenshots/
@@ -292,7 +292,7 @@ jobs:
       - name: Publish upload-ready App Store screenshots
         id: publish-store-screenshots
         if: steps.store-screenshots.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: app-store-screenshots
           path: ${{ steps.store-screenshots.outputs.artifact_path }}
@@ -322,7 +322,7 @@ jobs:
       - name: Publish the build output to Actions
         id: publish
         if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # The server pulls this rather than the runner pushing it: the
           # runner-to-host direction of the GitHub route is ~10x slower.
@@ -337,7 +337,7 @@ jobs:
       - name: Publish the verified App Store IPA
         id: publish-app-store
         if: steps.app-store.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-app-store
           path: ${{ steps.app-store.outputs.artifact_path }}
@@ -347,7 +347,7 @@ jobs:
 
       - name: Upload the XCTest bundle for the device stage
         if: steps.testable.outputs.built == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-tests
           path: app/build/ios_tests.zip
@@ -428,7 +428,7 @@ jobs:
     needs: [flutter-test, ios-build]
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Decide whether the device stage runs
         id: gate
@@ -456,7 +456,7 @@ jobs:
 
       - name: Download the XCTest bundle
         if: steps.gate.outputs.run == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ios-tests
           path: bundle
@@ -498,7 +498,7 @@ jobs:
     needs: [flutter-test, ios-build, firebase-test]
     if: always()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Close the run
         run: |
           RESULTS="${{ needs.flutter-test.result }} ${{ needs.ios-build.result }} ${{ needs.firebase-test.result }}"
