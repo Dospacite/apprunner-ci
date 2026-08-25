@@ -23,6 +23,12 @@ OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 
 python3 "$SCRIPT_DIR/resolve_ios_simulators.py" "$PHONES_JSON" > "$OUTPUT_DIR/resolved-phones.json"
 
+NORMALIZER=""
+if python3 -c 'import json,sys; raise SystemExit(not any("storeProfile" in item for item in json.load(open(sys.argv[1]))))' "$OUTPUT_DIR/resolved-phones.json"; then
+  NORMALIZER="${RUNNER_TEMP:-/tmp}/apprunner-normalize-store-png"
+  swiftc "$SCRIPT_DIR/normalize_store_png.swift" -o "$NORMALIZER"
+fi
+
 ACTIVE_DEVICE=""
 cleanup() {
   if [[ -n "$ACTIVE_DEVICE" ]]; then
@@ -36,10 +42,10 @@ cp "$SCRIPT_DIR/apprunner_screenshots_driver.dart" \
 
 PHONE_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$OUTPUT_DIR/resolved-phones.json")"
 for ((index=0; index<PHONE_COUNT; index++)); do
-  IFS=$'\t' read -r PHONE_KEY MODEL RUNTIME DEVICE_ID < <(python3 -c '
+  IFS=$'\t' read -r PHONE_KEY MODEL RUNTIME DEVICE_ID STORE_PROFILE < <(python3 -c '
 import json, sys
 phone = json.load(open(sys.argv[1]))[int(sys.argv[2])]
-print("\t".join([phone["key"], phone["model"], phone["runtime"], phone["udid"]]))
+print("\t".join([phone["key"], phone["model"], phone["runtime"], phone["udid"], phone.get("storeProfile", {}).get("key", "")]))
 ' "$OUTPUT_DIR/resolved-phones.json" "$index")
   ACTIVE_DEVICE="$DEVICE_ID"
   log "booting $PHONE_KEY: $MODEL, $RUNTIME"
@@ -58,6 +64,13 @@ print("\t".join([phone["key"], phone["model"], phone["runtime"], phone["udid"]])
         --target "$SCENARIO" \
         --driver test_driver/apprunner_screenshots_driver.dart
   )
+  if [[ -n "$STORE_PROFILE" ]]; then
+    log "normalizing $STORE_PROFILE images to opaque 8-bit RGB PNG"
+    for source in "$PHONE_DIR"/*.png; do
+      "$NORMALIZER" "$source" "$source.normalized.png"
+      mv "$source.normalized.png" "$source"
+    done
+  fi
   log "finished $PHONE_KEY; shutting down its simulator"
   xcrun simctl shutdown "$DEVICE_ID"
   ACTIVE_DEVICE=""

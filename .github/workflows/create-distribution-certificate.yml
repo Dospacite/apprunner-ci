@@ -1,0 +1,52 @@
+name: Create Apple Distribution certificate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type CREATE to consume an Apple Distribution certificate slot
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    if: inputs.confirmation == 'CREATE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the App Store Connect key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          test -n "$ASC_KEY_P8"
+          test -n "$ASC_KEY_ID"
+          printf '%s' "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Create and export the certificate
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+        run: |
+          test -n "$ASC_ISSUER_ID"
+          test -n "$P12_PASSWORD"
+          python3 scripts/create_distribution_certificate.py \
+            --output build/AppleDistribution.p12 \
+            --metadata build/AppleDistribution.json
+
+      - name: Upload the password-protected backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-distribution-certificate
+          path: |
+            build/AppleDistribution.p12
+            build/AppleDistribution.json
+          if-no-files-found: error
+          retention-days: 1

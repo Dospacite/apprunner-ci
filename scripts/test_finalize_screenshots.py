@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import hashlib
+import binascii
 import json
 import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 
@@ -13,7 +15,21 @@ SCRIPT = Path(__file__).with_name("finalize_screenshots.py")
 
 
 def png(width, height, suffix=b""):
-    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", width, height) + b"fixture" + suffix
+    def chunk(kind, payload):
+        return (
+            struct.pack(">I", len(payload))
+            + kind
+            + payload
+            + struct.pack(">I", binascii.crc32(kind + payload) & 0xFFFFFFFF)
+        )
+    pixel = (suffix[:1] or b"\0") * 3
+    rows = b"".join(b"\0" + pixel * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
 
 
 class FinalizeScreenshotsTest(unittest.TestCase):

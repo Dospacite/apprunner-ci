@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve public screenshot phone requests against a simctl catalogue."""
+"""Resolve screenshot device requests against a simctl catalogue."""
 
 import json
 import re
@@ -8,8 +8,16 @@ import sys
 from pathlib import Path
 
 
-PRESETS = {"default", "compact", "standard", "large"}
-KEY = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+PRESETS = {"default", "compact", "standard", "large", "iphone-6.9", "ipad-13"}
+STORE_PROFILES = {
+    "iphone-6.9": {
+        "deviceClass": "iPhone", "widthPixels": 1320, "heightPixels": 2868,
+    },
+    "ipad-13": {
+        "deviceClass": "iPad", "widthPixels": 2064, "heightPixels": 2752,
+    },
+}
+KEY = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,31}$")
 VERSION = re.compile(r"^\d+\.\d+$")
 
 
@@ -24,32 +32,46 @@ def model_number(name):
     return int(match.group(1)) if match else 0
 
 
-def catalogue_phones(payload):
-    phones = []
+def catalogue_devices(payload):
+    devices = []
     for runtime_id, entries in payload.get("devices", {}).items():
         if "iOS-" not in runtime_id:
             continue
         version, display_version = runtime_version(runtime_id)
         for device in entries:
             name = device.get("name", "")
-            if device.get("isAvailable") and name.startswith("iPhone"):
-                phones.append({
+            if device.get("isAvailable") and name.startswith(("iPhone", "iPad")):
+                devices.append({
                     "name": name,
                     "udid": device["udid"],
                     "runtime": f"iOS {display_version}",
                     "runtimeVersion": version,
                     "runtimeIdentifier": runtime_id,
                 })
-    return phones
+    return devices
 
 
-def preset_candidates(preset, phones):
+def preset_candidates(preset, devices):
+    phones = [device for device in devices if device["name"].startswith("iPhone")]
     if preset == "default":
         return phones
     if preset == "compact":
         return [phone for phone in phones if "iPhone SE" in phone["name"]]
     if preset == "large":
         return [phone for phone in phones if "Pro Max" in phone["name"] or " Plus" in phone["name"]]
+    if preset == "iphone-6.9":
+        return [
+            phone for phone in phones
+            if "Pro Max" in phone["name"]
+            and model_number(phone["name"]) >= 16
+            and phone["runtimeVersion"] >= (26,)
+        ]
+    if preset == "ipad-13":
+        return [
+            device for device in devices
+            if device["name"].startswith("iPad Pro 13-inch")
+            and device["runtimeVersion"] >= (26,)
+        ]
     return [
         phone for phone in phones
         if "iPhone SE" not in phone["name"]
@@ -102,36 +124,38 @@ def normalize_request(raw):
 
 
 def resolve(request, catalogue):
-    phones = catalogue_phones(catalogue)
-    if not phones:
-        raise ValueError("no available iPhone simulators")
-    available = ", ".join(sorted({f'{p["name"]} ({p["runtime"]})' for p in phones}))
+    devices = catalogue_devices(catalogue)
+    if not devices:
+        raise ValueError("no available iOS simulators")
+    available = ", ".join(sorted({f'{p["name"]} ({p["runtime"]})' for p in devices}))
     resolved = []
     identities = set()
     for item in normalize_request(request):
         requested = item["requested"]
         if requested["kind"] == "preset":
-            candidates = preset_candidates(requested["preset"], phones)
+            candidates = preset_candidates(requested["preset"], devices)
             preset = requested["preset"]
         else:
-            candidates = [phone for phone in phones if phone["name"] == requested["model"]]
+            candidates = [phone for phone in devices if phone["name"] == requested["model"]]
             if requested.get("runtime"):
                 wanted = tuple(int(part) for part in requested["runtime"].split("."))
                 candidates = [phone for phone in candidates if phone["runtimeVersion"][:2] == wanted]
             preset = "default"
         if not candidates:
-            raise ValueError(f'could not resolve screenshot phone {item["key"]}; available iPhones: {available}')
+            raise ValueError(f'could not resolve screenshot device {item["key"]}; available devices: {available}')
         chosen = max(candidates, key=lambda phone: rank(phone, preset))
         identity = chosen["runtimeIdentifier"], chosen["udid"]
         if identity in identities:
             raise ValueError(f'screenshot phone {item["key"]} resolves to a simulator already selected')
         identities.add(identity)
+        profile = STORE_PROFILES.get(requested.get("preset"))
         resolved.append({
             **item,
             "model": chosen["name"],
             "runtime": chosen["runtime"],
             "runtimeIdentifier": chosen["runtimeIdentifier"],
             "udid": chosen["udid"],
+            **({"storeProfile": {"key": requested["preset"], **profile}} if profile else {}),
         })
     return resolved
 

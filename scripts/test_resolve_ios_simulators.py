@@ -18,6 +18,10 @@ CATALOGUE = {
         "com.apple.CoreSimulator.SimRuntime.iOS-17-5": [
             {"name": "iPhone 15 Pro", "udid": "exact", "isAvailable": True},
         ],
+        "com.apple.CoreSimulator.SimRuntime.iOS-26-0": [
+            {"name": "iPhone 17 Pro Max", "udid": "store-phone", "isAvailable": True},
+            {"name": "iPad Pro 13-inch (M4)", "udid": "store-ipad", "isAvailable": True},
+        ],
     }
 }
 
@@ -38,7 +42,7 @@ class ResolveIosSimulatorsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         resolved = json.loads(result.stdout)
         self.assertEqual([item["key"] for item in resolved], ["compact", "large"])
-        self.assertEqual([item["udid"] for item in resolved], ["se", "large"])
+        self.assertEqual([item["udid"] for item in resolved], ["se", "store-phone"])
 
     def test_resolves_an_exact_model_and_runtime(self):
         result = self.run_resolver([{"key": "case", "model": "iPhone 15 Pro", "runtime": "17.5"}])
@@ -48,7 +52,15 @@ class ResolveIosSimulatorsTest(unittest.TestCase):
     def test_rejects_an_unavailable_exact_model(self):
         result = self.run_resolver([{"key": "case", "model": "iPhone 12 mini"}])
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("available iPhones", result.stderr)
+        self.assertIn("available devices", result.stderr)
+
+    def test_resolves_strict_app_store_profiles(self):
+        result = self.run_resolver(["iphone-6.9", "ipad-13"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        resolved = json.loads(result.stdout)
+        self.assertEqual([item["udid"] for item in resolved], ["store-phone", "store-ipad"])
+        self.assertEqual(resolved[0]["storeProfile"]["widthPixels"], 1320)
+        self.assertEqual(resolved[1]["storeProfile"]["heightPixels"], 2752)
 
 
 if __name__ == "__main__":
