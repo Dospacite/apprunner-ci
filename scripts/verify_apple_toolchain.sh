@@ -2,7 +2,8 @@
 set -euo pipefail
 
 MINIMUM_MAJOR="${MINIMUM_APP_STORE_SDK_MAJOR:-26}"
-XCODE_VERSION="$(xcodebuild -version | awk '/Xcode/{print $2; exit}')"
+XCODE_OUTPUT="$(xcodebuild -version)"
+XCODE_VERSION="$(sed -n 's/^Xcode //p' <<<"$XCODE_OUTPUT")"
 SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
 XCODE_MAJOR="${XCODE_VERSION%%.*}"
 SDK_MAJOR="${SDK_VERSION%%.*}"
