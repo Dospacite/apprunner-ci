@@ -2,8 +2,9 @@
 # Build and verify an App Store Connect IPA. This lane is intentionally fail-closed.
 set -euo pipefail
 
-APP_DIR="${1:?usage: build_app_store.sh <app-dir> <bundle-id>}"
-BUNDLE_ID="${2:?usage: build_app_store.sh <app-dir> <bundle-id>}"
+APP_DIR="${1:?usage: build_app_store.sh <app-dir> <bundle-id> <build-number>}"
+BUNDLE_ID="${2:?usage: build_app_store.sh <app-dir> <bundle-id> <build-number>}"
+BUILD_NUMBER="${3:?usage: build_app_store.sh <app-dir> <bundle-id> <build-number>}"
 : "${ASC_KEY_ID:?ASC_KEY_ID is required}"
 : "${ASC_ISSUER_ID:?ASC_ISSUER_ID is required}"
 : "${ASC_TEAM_ID:?ASC_TEAM_ID is required}"
@@ -13,6 +14,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTIFACT_PATH="$APP_DIR/build/Runner-AppStore.ipa"
 log() { printf '\033[1;35m[app-store]\033[0m %s\n' "$*" >&2; }
 emit() { echo "$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
+
+if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+  log "build number must be a positive integer"
+  exit 1
+fi
 
 "$SCRIPT_DIR/verify_apple_toolchain.sh"
 if ! security find-identity -v -p codesigning | grep -q '"Apple Distribution:'; then
@@ -50,7 +56,7 @@ log "archiving $BUNDLE_ID for App Store Connect"
     -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
     DEVELOPMENT_TEAM="$ASC_TEAM_ID" \
     CODE_SIGN_STYLE=Automatic \
-    CODE_SIGN_IDENTITY="Apple Distribution" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" )
 
 xcodebuild -exportArchive \
@@ -79,4 +85,5 @@ python3 "$SCRIPT_DIR/verify_app_store_ipa.py" build/Runner-AppStore.ipa \
   --bundle-id "$BUNDLE_ID" "${FAMILY_ARGS[@]}"
 emit "store_ready=true"
 emit "artifact_path=$ARTIFACT_PATH"
-log "verified build/Runner-AppStore.ipa"
+emit "build_number=$BUILD_NUMBER"
+log "verified build/Runner-AppStore.ipa as build $BUILD_NUMBER"

@@ -105,7 +105,7 @@ Actions → **Build and test** → **Run workflow**:
 | `run_id` | Leave empty to build without reporting. |
 | `project` | Slug or id. **Empty builds the newest archive you own.** |
 | `skip_firebase` | `true` stops after the iOS build. Saves device quota. |
-| `app_store_release` | `true` adds a verified App Store Connect IPA. It never falls back to the test artifact. |
+| `app_store_release` | `true` builds, verifies, and uploads an IPA to App Store Connect. It never falls back to the test artifact. |
 | `capture_screenshot` | `true` runs `integration_test/apprunner_screenshots.dart` on an iOS simulator and saves every named screenshot. |
 | `screenshot_phones` | JSON list of responsive presets, strict `iphone-6.9`/`ipad-13` store profiles, or exact `{key,model,runtime?}` selectors. |
 | `flutter_version` | Empty means latest stable. |
@@ -135,6 +135,7 @@ absent:
 | `patch_xcode.py` | Bundle ids and the Objective-C test runner, in `project.pbxproj`. |
 | `build_ios.sh` | Produces the unsigned `Runner-Test.app.zip`; never labels it distributable. |
 | `build_app_store.sh` | Fail-closed App Store archive, export, and embedded verification. |
+| `upload_app_store.sh` | Uploads the verified IPA with the App Store Connect API key. |
 | `verify_app_store_ipa.py` | Proves bundle id, SDK/Xcode provenance, profile, entitlements, signature, and certificate class. |
 | `build_testable.sh` | The XCTest bundle. Refuses to ship unsigned artifacts. |
 | `resolve_ios_simulators.py` | Resolves responsive devices, exact selectors, and strict iPhone/iPad store profiles. |

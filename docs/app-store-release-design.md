@@ -21,12 +21,15 @@ for submission.
    A generated identifier is used only for a project without a usable one.
 3. The macOS runner proves that Xcode 26+ and the iOS 26+ SDK are selected.
 4. The normal compile and optional Firebase test bundle run as before.
-5. `build_app_store.sh` archives with an Apple Distribution identity and exports
-   with `method=app-store-connect`.
+5. `build_app_store.sh` lets automatic signing select identities per target,
+   then exports with `method=app-store-connect`. The verifier requires an Apple
+   Distribution signature on the final IPA. A UTC timestamp becomes the build
+   number so an automated delivery does not reuse the checked-in number.
 6. `verify_app_store_ipa.py` checks the signature, profile, entitlements,
    bundle identifier, Xcode, and SDK before publication.
-7. Only a verified IPA is published as `ios-app-store`. Any store-lane failure
-   fails the iOS stage and the run.
+7. The workflow publishes the verified IPA as `ios-app-store`, then uploads it
+   to App Store Connect with the API key. Apple must accept the delivery before
+   the iOS stage passes.
 
 ## Screenshot contract
 
@@ -56,6 +59,7 @@ without improving the release invariant.
 - `build_ios.sh(app_dir) -> ios-test-build`: unsigned compile evidence only.
 - `build_app_store.sh(app_dir, bundle_id) -> ios-app-store`: fail-closed export.
 - `verify_app_store_ipa.py(ipa, bundle_id)`: artifact-level release proof.
+- `upload_app_store.sh(ipa)`: authenticated App Store Connect delivery.
 - `resolve_ios_simulators.py(request, catalogue)`: resolve responsive presets,
   exact devices, and strict store profiles.
 - `finalize_screenshots.py(output)`: authoritative capture/PNG manifest.
@@ -73,9 +77,9 @@ identity used for Firebase. Store releases additionally require:
 - `IOS_DISTRIBUTION_CERT_P12`
 - `IOS_DISTRIBUTION_CERT_PASSWORD`
 
-The existing App Store Connect API key secrets are shared by provisioning and
-export. Missing or incorrect distribution credentials fail a requested store
-release; they do not silently downgrade it.
+The existing App Store Connect API key secrets are shared by provisioning,
+export, and upload. Missing or incorrect distribution credentials fail a
+requested store release; they do not silently downgrade it.
 
 ## Rejected alternatives
 

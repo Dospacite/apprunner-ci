@@ -18,7 +18,7 @@ else {
   exit(1)
 }
 
-let bytesPerRow = ((image.width * 3 + 15) / 16) * 16
+let bytesPerRow = image.width * 4
 guard let context = CGContext(
   data: nil,
   width: image.width,
@@ -26,7 +26,8 @@ guard let context = CGContext(
   bitsPerComponent: 8,
   bytesPerRow: bytesPerRow,
   space: CGColorSpaceCreateDeviceRGB(),
-  bitmapInfo: CGImageAlphaInfo.none.rawValue
+  bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue |
+    CGImageAlphaInfo.noneSkipLast.rawValue
 ) else {
   fputs("could not create opaque RGB drawing context\n", stderr)
   exit(1)

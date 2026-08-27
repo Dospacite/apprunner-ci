@@ -255,7 +255,9 @@ jobs:
           KEY_PATH: ${{ steps.signing.outputs.key_path }}
         run: |
           set -o pipefail
-          ./scripts/build_app_store.sh app "${{ steps.ident.outputs.bundle_id }}" 2>&1 | tee app-store.log
+          BUILD_NUMBER="$(date -u +%Y%m%d%H%M%S)"
+          ./scripts/build_app_store.sh app "${{ steps.ident.outputs.bundle_id }}" "$BUILD_NUMBER" \
+            2>&1 | tee app-store.log
 
       - name: Capture app-owned screenshot states
         id: screenshot
@@ -345,6 +347,18 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+      - name: Upload the verified IPA to App Store Connect
+        id: upload-app-store
+        if: steps.publish-app-store.outcome == 'success'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          KEY_PATH: ${{ steps.signing.outputs.key_path }}
+        run: |
+          set -o pipefail
+          ./scripts/upload_app_store.sh "${{ steps.app-store.outputs.artifact_path }}" \
+            2>&1 | tee app-store-upload.log
+
       - name: Upload the XCTest bundle for the device stage
         if: steps.testable.outputs.built == 'true'
         uses: actions/upload-artifact@v7
@@ -359,6 +373,7 @@ jobs:
           ./scripts/apprunner.sh log ios_build prepare.log prepare.log || true
           ./scripts/apprunner.sh log ios_build xcodebuild.log build.log || true
           ./scripts/apprunner.sh log ios_build app-store.log app-store.log || true
+          ./scripts/apprunner.sh log ios_build app-store-upload.log app-store-upload.log || true
           ./scripts/apprunner.sh log ios_build screenshot.log screenshot.log || true
           ./scripts/apprunner.sh log ios_build build-for-testing.log testable.log || true
 
@@ -369,10 +384,12 @@ jobs:
              && [ "${{ steps.publish-screenshot.outcome }}" != "failure" ] \
              && [ "${{ steps.app-store.outcome }}" != "failure" ] \
              && [ "${{ steps.publish-app-store.outcome }}" != "failure" ] \
+             && { [ "${{ inputs.app_store_release }}" != "true" ] || [ "${{ steps.upload-app-store.outcome }}" = "success" ]; } \
              && [ "${{ steps.store-screenshots.outcome }}" != "failure" ] \
              && [ "${{ steps.publish-store-screenshots.outcome }}" != "failure" ]; then
             if [ "${{ inputs.app_store_release }}" = "true" ]; then
-              ./scripts/apprunner.sh stage ios_build passed "Verified App Store Connect IPA for ${{ steps.ident.outputs.bundle_id }}."
+              ./scripts/apprunner.sh stage ios_build passed \
+                "Uploaded App Store Connect build ${{ steps.app-store.outputs.build_number }} for ${{ steps.ident.outputs.bundle_id }}."
             else
               ./scripts/apprunner.sh stage ios_build passed "Unsigned iOS test build for ${{ steps.ident.outputs.bundle_id }}; not for App Store submission."
             fi
@@ -384,6 +401,8 @@ jobs:
             ./scripts/apprunner.sh stage ios_build failed "The test build passed, but the App Store archive or verification failed."
           elif [ "${{ steps.publish-app-store.outcome }}" = "failure" ]; then
             ./scripts/apprunner.sh stage ios_build failed "The App Store IPA passed verification but could not be published."
+          elif [ "${{ inputs.app_store_release }}" = "true" ] && [ "${{ steps.upload-app-store.outcome }}" != "success" ]; then
+            ./scripts/apprunner.sh stage ios_build failed "The verified IPA could not be uploaded to App Store Connect."
           elif [ "${{ steps.store-screenshots.outcome }}" = "failure" ]; then
             ./scripts/apprunner.sh stage ios_build failed "The strict captures did not match the app-owned App Store screenshot specification."
           elif [ "${{ steps.publish-store-screenshots.outcome }}" = "failure" ]; then
